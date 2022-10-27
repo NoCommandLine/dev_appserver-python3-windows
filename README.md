@@ -42,13 +42,13 @@ A high level summary of the changes/code in the patch
 
     Location: 
     
-    <CLOUDSK_INSTALL_PATH>\Cloud SDK\google-cloud-sdk\platform\google_appengine\google\appengine\tools\devappserver2\python\
+    <SDK_INSTALL_PATH>\Cloud SDK\google-cloud-sdk\platform\google_appengine\google\appengine\tools\devappserver2\python\
 
 2. http_runtime.py 
 
     Location: 
     
-   <CLOUDSK_INSTALL_PATH>\Cloud SDK\google-cloud-sdk\platform\google_appengine\google\appengine\tools\devappserver2\
+   <SDK_INSTALL_PATH>\Cloud SDK\google-cloud-sdk\platform\google_appengine\google\appengine\tools\devappserver2\
    
    
 ## Installation
