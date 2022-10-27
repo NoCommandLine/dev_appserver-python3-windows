@@ -8,6 +8,7 @@ According to [Google](https://cloud.google.com/appengine/docs/standard/testing-a
 
 > The dev_appserver tool does not support development of Python 3 apps on Windows.
 
+
 ## How
 A high level summary of the changes/code in the patch
 
@@ -33,3 +34,35 @@ A high level summary of the changes/code in the patch
     
     
     Setting ```PIP_USER = False``` solves all of the above error i.e. it allows you to run ```pip -m install <package_name>``` ([reference](https://github.com/gitpod-io/gitpod/issues/1997#issuecomment-708480259))
+
+
+## Changed Files
+
+1. instance_factory.py
+
+    Location: 
+    
+    <CLOUDSK_INSTALL_PATH>\Cloud SDK\google-cloud-sdk\platform\google_appengine\google\appengine\tools\devappserver2\python\
+
+2. http_runtime.py 
+
+    Location: 
+    
+   <CLOUDSK_INSTALL_PATH>\Cloud SDK\google-cloud-sdk\platform\google_appengine\google\appengine\tools\devappserver2\
+   
+   
+## Installation
+
+For each of the files listed under 'Changed Files', 
+
+1. Navigate to the location
+
+2. Create a backup of the file
+
+3. Download our copy of the file from the 'src' folder and overwrite the original file
+
+
+When done, run your app with the ```dev_appserver.py``` command as usual i.e. 
+
+
+```dev_appserver.py --runtime_python_path=<PYTHON3_PATH> --application=<PROJECT_ID> app.yaml --port=<PORT_NO> ```
