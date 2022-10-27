@@ -50,6 +50,7 @@ A high level summary of the changes/code in the patch
     
    <SDK_INSTALL_PATH>\Cloud SDK\google-cloud-sdk\platform\google_appengine\google\appengine\tools\devappserver2\
    
+Note: SDK_INSTALL_PATH = The path to Google Cloud SDK/CLI installation on your machine.
    
 ## Installation
 
