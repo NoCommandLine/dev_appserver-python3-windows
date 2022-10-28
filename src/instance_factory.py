@@ -343,7 +343,7 @@ class PythonRuntimeInstanceFactory(instance.InstanceFactory,
 
     with open(pip_out.name, 'r') as pip_out_r:
       pip_path = os.path.join(venv_dir, executables_folder, 'pip') # Changes by NoCommandLine - bin is replaced with executables_folder
-      # Changes by NoCommandLine - added python_path so we can use the command 'python.exe -m pip install --upgrade pip'
+      # Changes by NoCommandLine - added python_path so we can use the command 'python -m pip install --upgrade pip'
       python_path = os.path.join(venv_dir, executables_folder, 'python') 
       pip_env = os.environ.copy()
 
@@ -352,7 +352,8 @@ class PythonRuntimeInstanceFactory(instance.InstanceFactory,
               'VIRTUAL_ENV': venv_dir,
               # 'PATH': ':'.join( Changes by NoCommandLine - use os.pathsep to get the right path component separator for each OS i.e. ':', ';'
               'PATH': (str(os.pathsep)).join(
-                  [os.path.join(venv_dir, executables_folder), os.environ['PATH']]) # Changes by NoCommandLine - bin is replaced with executables_folder
+                  [os.path.join(venv_dir, executables_folder), os.environ['PATH']]), # Changes by NoCommandLine - bin is replaced with executables_folder
+              'PIP_USER': 'false' # Changes by NoCommandLine - see NOTE_PIP_USER below
           }
       )
       
@@ -362,16 +363,17 @@ class PythonRuntimeInstanceFactory(instance.InstanceFactory,
         # as per https://pip.pypa.io/en/stable/news/
         pip_requirement = 'pip<21'
 
-      # Changes by NoCommandLine
-      # Running pip install on Windows gives the error - 
-      # [WinError 5] Access is denied:   Consider using the `--user` option or check the permissions.
-      # So for Windows platform, we need to use the --user option
+      # NOTE_PIP_USER - Changes by NoCommandLine
+      # Running pip install on Windows gives the error: [WinError 5] Access is denied:   Consider using the `--user` option or check the permissions.
+      # 
+      # If you then use the --user option, you get another error: Can not perform a '--user' install. User site-packages are not visible in this virtualenv.
+      # The solution to this second problem is to set include-system-site-packages to true when creating the virtual env
       #
-      # Instead of using the --user option which also requires that we set include-system-site-packages to true when creating the virtual env,
-      # I set the environment variable PIP_USER=false (source - https://github.com/gitpod-io/gitpod/issues/1997#issuecomment-708480259)
+      # Setting the environment var 'PIP_USER = False' solves the above two problems (source - https://github.com/gitpod-io/gitpod/issues/1997#issuecomment-708480259)
+      # Note that we used 'false' which is a string instead of False the boolean value because all environment variables and values have to be string
       if mswindows:
-##        # Just running 'pip install --upgrade pip' gives an error so instead I'm running
-          # 'python -m pip install --upgrade pip' and 'python' is located in my virtual env
+          # Just running 'pip install --upgrade pip' gives an error so instead we're running
+          # 'python -m pip install --upgrade pip' and 'python' is located in our virtual env
           pip_cmds = [[python_path, '-m', 'pip', 'install', '--upgrade', pip_requirement],
                       [pip_path, 'install',  '-r', requirements_file_name],
                       [pip_path, 'install',  'waitress']]
