@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python
 #
 # Copyright 2007 Google LLC
@@ -15,459 +14,475 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""Serves content for "script" handlers using an HTTP runtime.
 
-http_runtime supports two ways to start the runtime instance.
+# Includes modifications by NoCommandLine (info.nocommandline@gmail.com | https://nocommandline.com)
+# to allow support for Python 3 Apps on Windows 
+"""Serves content for "script" handlers using the Python runtime."""
 
-START_PROCESS sends the runtime_config protobuf (serialized and base64 encoded
-as not all platforms support binary data over stdin) to the runtime instance
-over stdin and requires the runtime instance to send the port it is listening on
-over stdout.
-
-START_PROCESS_FILE creates two temporary files and adds the paths of both files
-to the runtime instance command line. The first file is written by http_runtime
-with the runtime_config proto (serialized); the runtime instance is expected to
-delete the file after reading it. The second file is written by the runtime
-instance with the port it is listening on (the line must be newline terminated);
-http_runtime is expected to delete the file after reading it.
-
-START_PROCESS_REVERSE Works by passing config in via a file and passes the HTTP
-port number created in http_runtime.py as an environment variable to the runtime
-process.
-
-START_PROCESS_REVERSE_NO_FILE equivalent to START_PROCESS, but passes the HTTP
-port number created in http_runtime.py as an environment variable to the runtime
-process.
-
-"""
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 
 
-import base64
 import logging
 import os
+import shutil
 import subprocess
 import sys
-import threading
+import tempfile
 import time
 
-import portpicker
+import google
 from google.appengine._internal import six
 
+# pylint: disable=g-import-not-at-top
+if six.PY2:
+  from google.appengine.api import appinfo
+else:
+  from google.appengine.api import appinfo
+
 from google.appengine.tools.devappserver2 import application_configuration
-from google.appengine.tools.devappserver2 import http_proxy
-from google.appengine.tools.devappserver2 import http_runtime_constants
+from google.appengine.tools.devappserver2 import errors
+from google.appengine.tools.devappserver2 import http_runtime
 from google.appengine.tools.devappserver2 import instance
-from google.appengine.tools.devappserver2 import safe_subprocess
-from google.appengine.tools.devappserver2 import tee
 
-# These are different approaches to passing configuration into the runtimes
-# and getting configuration back out of the runtime.
+_MODERN_DEFAULT_ENTRYPOINT = 'gunicorn -b :${PORT} main:app'
 
-# Works by passing config in via stdin and reading the port, and optionally
-# host, over stdout. If the host is present, it will be separated from the
-# port by a tab character.
-START_PROCESS = -1
+_DEFAULT_REQUIREMENT_FILE_NAME = 'requirements.txt'
 
-# Works by passing config in via a file and reading the port over a file.
-START_PROCESS_FILE = -2
+_RECREATE_MODERN_INSTANCE_FACTORY_CONFIG_CHANGES = set([
+    application_configuration.ENTRYPOINT_ADDED,
+    application_configuration.ENTRYPOINT_REMOVED])
 
-# Works by passing config in via a file and passes the port via
-# a command line flag.
-START_PROCESS_REVERSE = -3
+_MODERN_REQUEST_ID_HEADER_NAME = 'X-Appengine-Api-Ticket'
 
-# Works by passing config in via stdin and passes the port in via
-# an environment variable.
-START_PROCESS_REVERSE_NO_FILE = -4
+# Changes by NoCommandLine to support Windows platform
+import sys
+mswindows = (sys.platform == "win32")
+# Added the correct path to pip & python executables on Windows which is via 'Scripts' folder and not 'bin' folder
+# Also changed the default entrypoint to use waitress-serve
+if mswindows:
+  executables_folder = 'Scripts'
+  _MODERN_DEFAULT_ENTRYPOINT = 'waitress-serve --listen=*:$PORT main:app'
+else:
+  executables_folder = 'bin'
+# End of Changes added by NoCommandLine
+      
+# TODO: Refactor this factory class for modern runtimes.
+class PythonRuntimeInstanceFactory(instance.InstanceFactory,
+                                   instance.ModernInstanceFactoryMixin):
+  """A factory that creates new Python runtime Instances.
 
-# User application has an entrypoint defined in app.yaml.
-START_PROCESS_WITH_ENTRYPOINT = -5
+  This InstanceFactory supports 3 use cases:
+  o Running the python27 runtime as separate module with a __main__ method
+    (default).
+  o Running the python27 runtime as an executable.
+  o Running the python3 runtime as an executable.
 
-# Runtimes which need
-_RUNTIMES_NEED_VM_ENV_VARS = [
-    'go111',
-    'go114',
-    'go115',
-]
+  When running the python27 runtime as a module with a __main__ method, this
+  InstanceFactory creates a separate python27 interpreter process:
+   - Defaults to running the python interpreter running this code,
+     (running the devappserver, See _python27_executable_path). To use a
+      different python interpreter call SetPython27ExecutablePath.
+   - Defaults to a runtime module packaged with the SDK (See
+     _python27_runtime_path). To use a different runtime module call
+     SetPython27RuntimePath with the path to the module..
 
+  When running the python27 runtime as an executable this InstanceFactory
+  creates a separate process running the executable. To enable this case:
+    - Call SetPython27RuntimeIsExecutable(True)
+    - Call SetPython27RuntimePath with the path to the executable.
 
-def _sleep_between_retries(attempt, max_attempts, sleep_base):
-  """Sleep between retry attempts.
-
-  Do an exponential backoff between retry attempts on an operation. The general
-  pattern for use is:
-    for attempt in range(max_attempts):
-      # Try operation, either return or break on success
-      _sleep_between_retries(attempt, max_attempts, sleep_base)
-
-  Args:
-    attempt: Which attempt just failed (0 based).
-    max_attempts: The maximum number of attempts that will be made.
-    sleep_base: How long in seconds to sleep between the first and second
-      attempt (the time will be doubled between each successive attempt). The
-      value may be any numeric type that is convertible to float (complex won't
-      work but user types that are sufficiently numeric-like will).
+  When running the python3 runtime as an executable the behavior is
+  specified in the applications configuration (app.yaml file. See
+  _is_modern).
   """
-  # Don't sleep after the last attempt as we're about to give up.
-  if attempt < (max_attempts - 1):
-    time.sleep((2**attempt) * sleep_base)
+  START_URL_MAP = appinfo.URLMap(
+      url='/_ah/start',
+      script='$PYTHON_LIB/default_start_handler.py',
+      login='admin')
+  WARMUP_URL_MAP = appinfo.URLMap(
+      url='/_ah/warmup',
+      script='$PYTHON_LIB/default_warmup_handler.py',
+      login='admin')
+  SUPPORTS_INTERACTIVE_REQUESTS = True
+  FILE_CHANGE_INSTANCE_RESTART_POLICY = instance.AFTER_FIRST_REQUEST
 
-
-def _remove_retry_sharing_violation(path, max_attempts=10, sleep_base=.125):
-  """Removes a file (with retries on Windows for sharing violations).
-
-  Args:
-    path: The filesystem path to remove.
-    max_attempts: The maximum number of attempts to try to remove the path
-      before giving up.
-    sleep_base: How long in seconds to sleep between the first and second
-      attempt (the time will be doubled between each successive attempt). The
-      value may be any numeric type that is convertible to float (complex won't
-      work but user types that are sufficiently numeric-like will).
-
-  Raises:
-    WindowsError: When an error other than a sharing violation occurs.
-  """
-  if sys.platform == 'win32':
-    for attempt in range(max_attempts):
-      try:
-        os.remove(path)
-        break
-      except WindowsError as e:
-        import winerror
-        # Sharing violations are expected to occasionally occur when the runtime
-        # instance is context swapped after writing the port but before closing
-        # the file. Ignore these and try again.
-        if e.winerror != winerror.ERROR_SHARING_VIOLATION:
-          raise
-      _sleep_between_retries(attempt, max_attempts, sleep_base)
-    else:
-      logging.warn('Unable to delete %s', path)
-  else:
-    os.remove(path)
-
-
-def get_vm_environment_variables(module_configuration, runtime_config):
-  """Returns VM-specific environment variables."""
-  keys_values = [
-      ('API_HOST', runtime_config.api_host),
-      ('API_PORT', runtime_config.api_port),
-      ('GAE_LONG_APP_ID', module_configuration.application_external_name),
-      ('GAE_PARTITION', module_configuration.partition),
-      ('GAE_MODULE_NAME', module_configuration.module_name),
-      ('GAE_MODULE_VERSION', module_configuration.major_version),
-      ('GAE_MINOR_VERSION', module_configuration.minor_version),
-      ('GAE_MODULE_INSTANCE', runtime_config.instance_id),
-      ('GAE_SERVER_PORT', runtime_config.server_port),
-      ('MODULE_YAML_PATH', os.path.basename(module_configuration.config_path)),
-      ('SERVER_SOFTWARE', http_runtime_constants.SERVER_SOFTWARE),
-  ]
-  for entry in runtime_config.environ:
-    keys_values.append((entry.key, entry.value))
-
-  return {key: str(value) for key, value in keys_values}
-
-
-class HttpRuntimeProxy(instance.RuntimeProxy):
-  """Manages a runtime subprocess used to handle dynamic content."""
-
-  _VALID_START_PROCESS_FLAVORS = [
-      START_PROCESS, START_PROCESS_FILE, START_PROCESS_REVERSE,
-      START_PROCESS_REVERSE_NO_FILE, START_PROCESS_WITH_ENTRYPOINT
-  ]
-
-  # TODO: Determine if we can always use SIGTERM.
-  # Set this to True to quit with SIGTERM rather than SIGKILL
-
-
-
-
-  _quit_with_sigterm = False
+  _python27_runtime_path = os.path.abspath(
+      os.path.join(os.path.dirname(sys.argv[0]), '_python_runtime.py'))
+  _python27_runtime_is_executable = False
 
   @classmethod
-  def stop_runtimes_with_sigterm(cls, quit_with_sigterm):
-    """Configures the http_runtime module to kill the runtimes with SIGTERM.
+  def SetPython27RuntimeIsExecutable(cls, value):
+    """Sets if the Python27Runtime is executable."""
+    PythonRuntimeInstanceFactory._python27_runtime_is_executable = value
+
+  _runtime_python_path = {}
+
+  @classmethod
+  def SetRuntimePythonPath(cls, runtime_python_path):
+    """Set the per runtime path to the Python interpreter."""
+    PythonRuntimeInstanceFactory._runtime_python_path = runtime_python_path
+
+  @classmethod
+  def SetPython27RuntimePath(cls, path):
+    """Set path to the python 27 runtime."""
+    PythonRuntimeInstanceFactory._python27_runtime_path = path
+
+  def GetPython27RuntimeArgs(self):
+    """Get subprocess args for a python27 instance."""
+    if PythonRuntimeInstanceFactory._python27_runtime_is_executable:
+      return [PythonRuntimeInstanceFactory._python27_runtime_path]
+    else:
+      return [
+          self._GetPythonInterpreterPath(),
+          PythonRuntimeInstanceFactory._python27_runtime_path
+      ]
+
+  def _is_modern(self):
+    return six.ensure_str(
+        self._module_configuration.runtime).startswith('python3')
+
+  def _GetPythonInterpreterPath(self):
+    """Returns the python interpreter path for the current runtime."""
+    runtime = self._module_configuration.runtime
+    runtime_python_path = PythonRuntimeInstanceFactory._runtime_python_path
+    if runtime_python_path and isinstance(runtime_python_path, str):
+      return runtime_python_path
+    elif runtime_python_path and runtime in runtime_python_path:
+      return runtime_python_path[runtime]
+    elif self._is_modern():
+      return 'python3'
+    else:
+      return sys.executable
+
+  def _CheckPythonExecutable(self):
+    python_interpreter_path = self._GetPythonInterpreterPath()
+    try:
+      version_str = subprocess.check_output(
+          [python_interpreter_path, '--version'])
+      logging.info(
+          'Detected python version "%s" for runtime "%s" at "%s".',
+          version_str,
+          self._module_configuration.runtime,
+          python_interpreter_path)
+    except OSError:  # If python is not found, an OSError would be raised.
+      raise errors.Python3NotFoundError(
+          'Could not a python executable at "%s". Please verify that your '
+          'python installation, PATH and --runtime_python_path are correct.'
+          % python_interpreter_path)
+
+  def _IsPythonExecutableBefore36(self):
+    try:
+      python_version_str = subprocess.check_output(
+          [self._GetPythonInterpreterPath(), '--version'])
+    except OSError:  # If python3 is not found, an OSError would be raised.
+      logging.warning(
+          'Failed getting python3 version assuming pre 3.6 version.')
+      return True
+
+    # TODO: Use 'from packaging import version' under python3.
+    # See https://stackoverflow.com/questions/11887762
+    strip_prefix = 'Python '
+    if python_version_str.startswith(strip_prefix):
+      python_version_str = python_version_str[len(strip_prefix):]
+    python_version_str = python_version_str.strip()
+
+    # Note, 'from distutils import version as version_util' causes
+    # import errors in tests.
+    before_prefixes = ['2.', '3.0.', '3.1.', '3.2.', '3.3.' '3.4.', '3.5.']
+    for before_prefix in before_prefixes:
+      if python_version_str.startswith(before_prefix):
+        return True
+    return False
+
+  def __init__(self, request_data, runtime_config_getter, module_configuration):
+    """Initializer for PythonRuntimeInstanceFactory.
 
     Args:
-      quit_with_sigterm: True to enable stopping runtimes with SIGTERM.
-
-    Returns:
-      The previous value.
-    """
-    previous_quit_with_sigterm = cls._quit_with_sigterm
-    cls._quit_with_sigterm = quit_with_sigterm
-    return previous_quit_with_sigterm
-
-  def __init__(self,
-               args,
-               runtime_config_getter,
-               module_configuration,
-               env=None,
-               start_process_flavor=START_PROCESS,
-               extra_args_getter=None,
-               request_id_header_name=None):
-    """Initializer for HttpRuntimeProxy.
-
-    Args:
-      args: Arguments to use to start the runtime subprocess.
-      runtime_config_getter: A function that can be called without arguments and
-        returns the runtime_config_pb2.Config containing the configuration for
-        the runtime.
+      request_data: A wsgi_request_info.WSGIRequestInfo that will be provided
+          with request information for use by API stubs.
+      runtime_config_getter: A function that can be called without arguments
+          and returns the runtime_config_pb2.Config containing the configuration
+          for the runtime.
       module_configuration: An application_configuration.ModuleConfiguration
-        instance respresenting the configuration of the module that owns the
-        runtime.
-      env: A dict of environment variables to pass to the runtime subprocess.
-      start_process_flavor: Which version of start process to start your runtime
-        process. Supported flavors are START_PROCESS, START_PROCESS_FILE
-        START_PROCESS_REVERSE and START_PROCESS_REVERSE_NO_FILE
-      extra_args_getter: A function that can be called with a port number picked
-        by this http_runtime, and returns the extra command line parameter that
-        refers to the port number.
-      request_id_header_name: Optional string name used to pass request ID to
-        API server.  Defaults to http_runtime_constants.REQUEST_ID_HEADER.
-
-    Raises:
-      ValueError: An unknown value for start_process_flavor was used.
+          instance respresenting the configuration of the module that owns the
+          runtime.
     """
-    super(HttpRuntimeProxy, self).__init__()
-    self._process = None
-    self._process_lock = threading.Lock()  # Lock to guard self._process.
-    self._stderr_tee = None
+    super(PythonRuntimeInstanceFactory, self).__init__(
+        request_data,
+        8 if runtime_config_getter().threadsafe else 1, 10)
     self._runtime_config_getter = runtime_config_getter
-    self._extra_args_getter = extra_args_getter
-    self._args = args
     self._module_configuration = module_configuration
-    self._env = env
-    # This sets environment variables at the process level and works for
-    # Java and Go. Python hacks os.environ to not really return the environment
-    # variables, so Python needs to set these elsewhere.
-    runtime_config = self._runtime_config_getter()
-    if (runtime_config.vm or
-        self._module_configuration.runtime in _RUNTIMES_NEED_VM_ENV_VARS):
-      self._env.update(
-          get_vm_environment_variables(self._module_configuration,
-                                       runtime_config))
+    self._venv_dir = ''
+    if self._is_modern():
+      self._CheckPythonExecutable()
+      self._SetupVirtualenvFromConfiguration()
 
-    if start_process_flavor not in self._VALID_START_PROCESS_FLAVORS:
-      raise ValueError('Invalid start_process_flavor.')
-    self._start_process_flavor = start_process_flavor
-    self._request_id_header_name = request_id_header_name
-    self._proxy = None
+  def __del__(self):
+    self._CleanUpVenv(self._venv_dir)
 
-  def _get_instance_logs(self):
-    # Give the runtime process a bit of time to write to stderr.
-    time.sleep(0.1)
-    return self._stderr_tee.get_buf()
+  def _CleanUpVenv(self, venv_dir):
+    if os.path.exists(venv_dir):
+      shutil.rmtree(venv_dir)
 
-  def _instance_died_unexpectedly(self):
-    with self._process_lock:
-      # If self._process is None then the process hasn't started yet, so it
-      # it hasn't died either. Otherwise, if self._process.poll() returns a
-      # non-None value then the process has exited and the poll() value is
-      # its return code.
-      return self._process and self._process.poll() is not None
+  @property
+  def _OrigRequirementsFile(self):
+    return os.path.join(
+        os.path.dirname(self._module_configuration.config_path),
+        _DEFAULT_REQUIREMENT_FILE_NAME)
 
-  def handle(self, environ, start_response, url_map, match, request_id,
-             request_type):
-    """Serves this request by forwarding it to the runtime process.
+  @property
+  def _entrypoint(self):
+    """Returns the entrypoint as is in module configuration."""
+    
+    # Changes by NoCommandLine - If app.yaml contains an entrypoint, dev_appserver.py prepends it with 'exec'
+    # However, trying to run 'exec' via subprocess.Popen on Windows leads to the error - 'exec' is not recognized as an internal or external command
+    # So, if we're on Windows, we'll strip the 'exec' from entrypoint and just run the original string supplied by the user based on the assumption
+    # that the string starts with an actual executable program which will be in the Scripts folder
+    if (mswindows and self._module_configuration.entrypoint):
+      import re
+      return re.sub('^exec[\s]+' , '', self._module_configuration.entrypoint)
+    else:
+      return self._module_configuration.entrypoint
+
+  def _SetupVirtualenvFromConfiguration(self):
+    self._CleanUpVenv(self._venv_dir)
+    self._venv_dir = tempfile.mkdtemp()
+      
+    if self._entrypoint:
+      self.venv_env_vars = self._SetupVirtualenv(
+          self._venv_dir, self._OrigRequirementsFile)
+    else:  # use default entrypoint
+      # Copy requirements.txt into a temporary file. It will be destroyed once
+      # the life of self._requirements_file ends. It is created in a directory
+      # different from venv_dir so that venv_dir starts clean.
+     
+      with tempfile.NamedTemporaryFile() as requirements_file:
+        # Make a copy of user requirements.txt, the copy is safe to modify.
+        if os.path.exists(self._OrigRequirementsFile):
+          with open(self._OrigRequirementsFile, 'rb') as orig_f:
+            requirements_file.write(orig_f.read())
+
+        # Similar to production, append gunicorn to requirements.txt
+        # as default entrypoint needs it.
+        requirements_file.write(six.b('\ngunicorn'))
+
+        # flushing it because _SetupVirtualenv uses it in a separate process.
+        requirements_file.flush()
+        # Changes by NoCommandLine
+        # For windows, pass self._OrigRequirementsFile because in Windows, the temporary file created as requirements_file is no longer accessible
+        if (mswindows):
+          self.venv_env_vars = self._SetupVirtualenv(
+              self._venv_dir, self._OrigRequirementsFile)
+        else:
+          self.venv_env_vars = self._SetupVirtualenv(
+              self._venv_dir, requirements_file.name) 
+
+  def configuration_changed(self, config_changes):
+    """Called when the configuration of the module has changed.
 
     Args:
-      environ: An environ dict for the request as defined in PEP-333.
-      start_response: A function with semantics defined in PEP-333.
-      url_map: An appinfo.URLMap instance containing the configuration for the
-        handler matching this request.
-      match: A re.MatchObject containing the result of the matched URL pattern.
-      request_id: A unique string id associated with the request.
-      request_type: The type of the request. See instance.*_REQUEST module
-        constants.
-
-    Yields:
-      A sequence of strings containing the body of the HTTP response.
+      config_changes: A set containing the changes that occoured. See the
+          *_CHANGED constants in the application_configuration module.
     """
+    if config_changes & _RECREATE_MODERN_INSTANCE_FACTORY_CONFIG_CHANGES:
+      self._SetupVirtualenvFromConfiguration()
 
-    return self._proxy.handle(environ, start_response, url_map, match,
-                              request_id, request_type)
+  def dependency_libraries_changed(self, file_changes):
+    """Decide whether dependency libraries in requirements.txt changed.
 
-  def _read_start_process_file(self, max_attempts=10, sleep_base=.125):
-    """Read the single line response expected in the start process file.
-
-    The START_PROCESS_FILE flavor uses a file for the runtime instance to
-    report back the port it is listening on. We can't rely on EOF semantics
-    as that is a race condition when the runtime instance is simultaneously
-    writing the file while the devappserver process is reading it; rather we
-    rely on the line being terminated with a newline.
+    If these libraries changed, recreate virtualenv with updated
+    requirements.txt. This should only be called for python3+ runtime.
 
     Args:
-      max_attempts: The maximum number of attempts to read the line.
-      sleep_base: How long in seconds to sleep between the first and second
-        attempt (the time will be doubled between each successive attempt). The
-        value may be any numeric type that is convertible to float (complex
-        won't work but user types that are sufficiently numeric-like will).
+      file_changes: A set of strings, representing paths to file changes.
 
     Returns:
-      If a full single line (as indicated by a newline terminator) is found, all
-      data read up to that point is returned; return an empty string if no
-      newline is read before the process exits or the max number of attempts are
-      made.
+      A bool indicating whether dependency libraries changed.
     """
-    try:
-      for attempt in range(max_attempts):
-        # Yes, the final data may already be in the file even though the
-        # process exited. That said, since the process should stay alive
-        # if it's exited we don't care anyway.
-        if self._process.poll() is not None:
-          return ''
-        # On Mac, if the first read in this process occurs before the data is
-        # written, no data will ever be read by this process without the seek.
-        self._process.child_out.seek(0)
-        line = self._process.child_out.read()
-        if '\n' in line:
-          return line
-        _sleep_between_retries(attempt, max_attempts, sleep_base)
-    finally:
-      self._process.child_out.close()
-    return ''
+    dep_libs_changed = None
+    if self._is_modern():
+      dep_libs_changed = next(
+          (x for x in file_changes
+           if six.ensure_str(x).endswith(_DEFAULT_REQUIREMENT_FILE_NAME)), None)
+      if dep_libs_changed:
+        self._SetupVirtualenvFromConfiguration()
+    return dep_libs_changed is not None
 
-  def start(self):
-    """Starts the runtime process and waits until it is ready to serve."""
-    runtime_config = self._runtime_config_getter()
-    # TODO: Use a different process group to isolate the child process
-    # from signals sent to the parent. Only available in subprocess in
-    # Python 2.7.
-    assert self._start_process_flavor in self._VALID_START_PROCESS_FLAVORS
-    host = 'localhost'
-    if self._start_process_flavor == START_PROCESS:
-      serialized_config = base64.b64encode(runtime_config.SerializeToString())
-      with self._process_lock:
-        assert not self._process, 'start() can only be called once'
-        self._process = safe_subprocess.start_process(
-            self._args,
-            serialized_config,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=self._env,
-            cwd=self._module_configuration.application_root)
-      port = six.ensure_text(self._process.stdout.readline())
-      if '\t' in port:  # Split out the host if present.
-        host, port = port.split('\t', 1)
-    elif self._start_process_flavor == START_PROCESS_FILE:
-      serialized_config = runtime_config.SerializeToString()
-      with self._process_lock:
-        assert not self._process, 'start() can only be called once'
-        self._process = safe_subprocess.start_process_file(
-            args=self._args,
-            input_string=serialized_config,
-            env=self._env,
-            cwd=self._module_configuration.application_root,
-            stderr=subprocess.PIPE)
-      port = self._read_start_process_file()
-      _remove_retry_sharing_violation(self._process.child_out.name)
-    elif self._start_process_flavor == START_PROCESS_REVERSE:
-      serialized_config = runtime_config.SerializeToString()
-      with self._process_lock:
-        assert not self._process, 'start() can only be called once'
-        port = portpicker.pick_unused_port()
-        self._env['PORT'] = str(port)
+  def _GetRuntimeArgs(self):
+    if self._is_modern():
+      return (self._entrypoint or _MODERN_DEFAULT_ENTRYPOINT).split()
+    else:
+      return self.GetPython27RuntimeArgs()
 
-        # If any of the strings in args contain {port}, replace that substring
-        # with the selected port. This allows a user-specified runtime to
-        # pass the port along to the subprocess as a command-line argument.
-        args = [arg.replace('{port}', str(port)) for arg in self._args]
+  @classmethod
+  def _WaitForProcWithLastLineStreamed(cls, proc, proc_stdout):
+    # Stream the last line of a process output, so that users can see
+    # progress instead of doubting dev_appserver hangs.
+    while proc.poll() is None:  # in progress
+      lastline = proc_stdout.readline().strip()
+      if lastline:
+        sys.stdout.write(lastline)
+        sys.stdout.flush()
+        # Erase previous lastline.
+        w = len(lastline)
+        sys.stdout.write(six.ensure_str('\b' * w + ' ' * w + '\b' * w))
+        time.sleep(0.2)
+    sys.stdout.write('\n')
+    return proc.poll()
 
-        self._process = safe_subprocess.start_process_file(
-            args=args,
-            input_string=serialized_config,
-            env=self._env,
-            cwd=self._module_configuration.application_root,
-            stderr=subprocess.PIPE)
-    elif self._start_process_flavor == START_PROCESS_WITH_ENTRYPOINT:
-      serialized_config = runtime_config.SerializeToString()
-      with self._process_lock:
-        assert not self._process, 'start() can only be called once'
-        port = portpicker.pick_unused_port()
-        self._env['PORT'] = str(port)
-        # Changes by MDSVN -
-        # If entrypoint contains $PORT parameter, then substitute the derived port value
-        if(sys.platform == "win32"):
-          self._args = [arg.replace('$PORT', str(port)) for arg in self._args]
+  def _RunPipInstall(self, venv_dir, requirements_file_name): 
+    """Run pip install inside a virtualenv, with decent stdout."""
+    # Run pip install based on user supplied requirements.txt.
+    pip_out = tempfile.NamedTemporaryFile(delete=False)
+    logging.info(
+        'Using pip to install dependency libraries; pip stdout is redirected '
+        'to %s', pip_out.name)
+
+    with open(pip_out.name, 'r') as pip_out_r:
+      pip_path = os.path.join(venv_dir, executables_folder, 'pip') # Changes by NoCommandLine - bin is replaced with executables_folder
+      # Changes by NoCommandLine - added python_path so we can use the command 'python.exe -m pip install --upgrade pip'
+      python_path = os.path.join(venv_dir, executables_folder, 'python') 
+      pip_env = os.environ.copy()
+
+      pip_env.update(
+          {
+              'VIRTUAL_ENV': venv_dir,
+              # 'PATH': ':'.join( Changes by NoCommandLine - use os.pathsep to get the right path component separator for each OS i.e. ':', ';'
+              'PATH': (str(os.pathsep)).join(
+                  [os.path.join(venv_dir, executables_folder), os.environ['PATH']]) # Changes by NoCommandLine - bin is replaced with executables_folder
+          }
+      )
+      
+      pip_requirement = 'pip'
+      if self._IsPythonExecutableBefore36():
+        # Because pip 21.0.0 drops support for python 3.5
+        # as per https://pip.pypa.io/en/stable/news/
+        pip_requirement = 'pip<21'
+
+      # Changes by NoCommandLine
+      # Running pip install on Windows gives the error - 
+      # [WinError 5] Access is denied:   Consider using the `--user` option or check the permissions.
+      # So for Windows platform, we need to use the --user option
+      #
+      # Instead of using the --user option which also requires that we set include-system-site-packages to true when creating the virtual env,
+      # I set the environment variable PIP_USER=false (source - https://github.com/gitpod-io/gitpod/issues/1997#issuecomment-708480259)
+      if mswindows:
+##        # Just running 'pip install --upgrade pip' gives an error so instead I'm running
+          # 'python -m pip install --upgrade pip' and 'python' is located in my virtual env
+          pip_cmds = [[python_path, '-m', 'pip', 'install', '--upgrade', pip_requirement],
+                      [pip_path, 'install',  '-r', requirements_file_name],
+                      [pip_path, 'install',  'waitress']]
+          
+      else:
+        pip_cmds = [[pip_path, 'install', '--upgrade', pip_requirement],
+                      [pip_path, 'install', '-r', requirements_file_name]]
+          
+##      for pip_cmd in [[pip_path, 'install', '--upgrade', pip_requirement],
+##                      [pip_path, 'install', '-r', requirements_file_name]]:
+      
+      for pip_cmd in pip_cmds: # End of Changes by NoCommandLine
+        cmd_str = ' '.join(pip_cmd)
+        logging.info('Running %s', cmd_str)
+        pip_proc = subprocess.Popen(pip_cmd, stdout=pip_out, env=pip_env)
+        if PythonRuntimeInstanceFactory._WaitForProcWithLastLineStreamed(
+            pip_proc, pip_out_r) != 0:
+          sys.exit('Failed to run "{}"'.format(cmd_str))
+
+  def _SetupVirtualenv(self, venv_dir, requirements_file_name):     
+    """Create virtualenv for py3 instances and run pip install."""
+    # Create a clean virtualenv
+    # TODO: Return this to python3, maybe use a flag for python3
+    
+    args = [self._GetPythonInterpreterPath(), '-m', 'venv', venv_dir]
+    
+    call_res = subprocess.call(args)
+    if call_res:
+      # `python3 -m venv` Failed.
+      # Clean up venv_dir and try 'virtualenv' command instead.
+      self._CleanUpVenv(venv_dir)
+      fallback_args = ['virtualenv', venv_dir]
+      logging.warning(
+          'Failed creating virtualenv with "%s", \n'
+          'trying "%s"', ' '.join(args), ' '.join(fallback_args))
+      call_res = subprocess.call(fallback_args)
+      if call_res:
+        raise IOError('Cannot create virtualenv {}'.format(venv_dir))
+      logging.warning(
+          'Runtime python interpreter will be selected by virtualenv')
+    
+    self._RunPipInstall(venv_dir, requirements_file_name) 
+
+    # These env vars are used in subprocess to have the same effect as running
+    # `source ${venv_dir}/bin/activate`
+    # Changes by NoCommandLine - added SYSTEM ROOT to the env to handle the error
+    # Fatal Python error: _Py_HashRandomization_Init: failed to get random numbers to initialize Python
+    # Python runtime state: preinitialized
+    python_interpreter_path = self._GetPythonInterpreterPath()
+    return {
+        'VIRTUAL_ENV': venv_dir,
+        'SYSTEMROOT': os.environ["SYSTEMROOT"], # Changes by NoCommandLine - see note above
+        # 'PATH': ':'.join( Changes by NoCommandLine - use os.pathsep to get the right path component separator for each OS i.e. ':', ';'
+        'PATH': (str(os.pathsep)).join(
+            [os.path.join(venv_dir, executables_folder), os.environ['PATH']]) # Changes by NoCommandLine - replaced bin with executables_folder
+    }
+
+  def _GetRuntimeEnvironmentVariables(self, instance_id=None):
+    my_runtime_config = self._runtime_config_getter()
+    if self._is_modern():
+      res = {'PYTHONHASHSEED': 'random'}
+      res.update(self.get_modern_env_vars(instance_id))
+      res.update(self.venv_env_vars)
+      res['API_HOST'] = my_runtime_config.api_host
+      res['API_PORT'] = str(my_runtime_config.api_port)
+      res['GAE_APPLICATION'] = my_runtime_config.app_id
+
+      # Changes by NoCommandLine. Make sure all variables and keys are str to deal with the error - environment can only contain strings
+      res = {str(k): str(v) for k, v in res.items()}
         
-        # CHANGES by MDSVN - Temporarily disabled
-        # Previously, shell had a constant value of True i.e. shell = True
-        # Changed it to - If this is windows, shell = False, else it will be True
-        # Reason: On Windows, shell = True should be used only when the command being executed is built into the shell
-        # https://docs.python.org/2.7/library/subprocess.html
-        self._process = safe_subprocess.start_process(
-            args=self._args,
-            input_string=serialized_config,
-            env=self._env,
-            cwd=self._module_configuration.application_root,
-            stderr=subprocess.PIPE,
-            shell= True) # Change by MDSVN (see above) False if(sys.platform == "win32") else True
-    elif self._start_process_flavor == START_PROCESS_REVERSE_NO_FILE:
-      serialized_config = runtime_config.SerializeToString()
-      with self._process_lock:
-        assert not self._process, 'start() can only be called once'
-        port = portpicker.pick_unused_port()
-        if self._extra_args_getter:
-          self._args.append(self._extra_args_getter(port))
+    else:
+      # TODO: Do not pass os.environ to local python27 runtime.
+      res = dict(os.environ, PYTHONHASHSEED='random')
+    for kv in my_runtime_config.environ:
+      res[kv.key] = kv.value
+    return res
 
-        # If any of the strings in _args contain {port}, {api_host}, {api_port},
-        # replace that substring with the selected port. This allows
-        # a user-specified runtime to pass the port along to the subprocess
-        # as a command-line argument.
-        args = []
-        for arg in self._args:
-          args.append(
-              arg.replace('{port}', str(port)).replace(
-                  '{api_port}', str(runtime_config.api_port)).replace(
-                      '{api_host}', runtime_config.api_host))
+  def _get_process_flavor(self):
+    return (http_runtime.START_PROCESS_WITH_ENTRYPOINT
+            if self._is_modern() else http_runtime.START_PROCESS_REVERSE)
 
-        self._process = safe_subprocess.start_process(
-            args=args,
-            input_string=serialized_config,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=self._env,
-            cwd=self._module_configuration.application_root)
+  def new_instance(self, instance_id, expect_ready_request=False): 
+    """Create and return a new Instance.
 
-    # _stderr_tee may be pre-set by unit tests.
-    if self._stderr_tee is None:
-      self._stderr_tee = tee.Tee(self._process.stderr,
-                                 sys.stderr if six.PY2 else sys.stderr.buffer)
-      self._stderr_tee.start()
+    Args:
+      instance_id: A string or integer representing the unique (per module) id
+          of the instance.
+      expect_ready_request: If True then the instance will be sent a special
+          request (i.e. /_ah/warmup or /_ah/start) before it can handle external
+          requests.
 
-    error = None
-    try:
-      port = int(port)
-    except ValueError:
-      error = 'bad runtime process port [%r]' % six.ensure_str(port)
-      logging.error(error)
-    finally:
-      self._proxy = http_proxy.HttpProxy(
-          host=host,
-          port=port,
-          instance_died_unexpectedly=self._instance_died_unexpectedly,
-          instance_logs_getter=self._get_instance_logs,
-          error_handler_file=application_configuration.get_app_error_file(
-              self._module_configuration),
-          prior_error=error,
-          request_id_header_name=self._request_id_header_name)
-      self._proxy.wait_for_connection(self._process)
+    Returns:
+      The newly created instance.Instance.
+    """
+    def instance_config_getter():
+      runtime_config = self._runtime_config_getter()
+      runtime_config.instance_id = str(instance_id)
+      return runtime_config
 
-  def quit(self):
-    """Causes the runtime process to exit."""
-    with self._process_lock:
-      assert self._process, 'module was not running'
-      try:
-        if HttpRuntimeProxy._quit_with_sigterm:
-          logging.debug('Calling process.terminate on child runtime.')
-          self._process.terminate()
-        else:
-          self._process.kill()
-      except OSError:
-        pass
-      # Mac leaks file descriptors without call to join. Suspect a race
-      # condition where the interpreter is unable to close the subprocess pipe
-      # as the thread hasn't returned from the readline call.
-      self._stderr_tee.join(5)
-      self._process = None
+    request_id_hdr_name = (
+        _MODERN_REQUEST_ID_HEADER_NAME if self._is_modern() else None)
+    proxy = http_runtime.HttpRuntimeProxy(
+        self._GetRuntimeArgs(),
+        instance_config_getter,
+        self._module_configuration,
+        env=self._GetRuntimeEnvironmentVariables(instance_id),
+        start_process_flavor=self._get_process_flavor(),
+        request_id_header_name=request_id_hdr_name)
+    return instance.Instance(self.request_data,
+                             instance_id,
+                             proxy,
+                             self.max_concurrent_requests,
+                             self.max_background_threads,
+                             expect_ready_request)
