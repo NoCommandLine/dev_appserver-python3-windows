@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python
 #
 # Copyright 2007 Google LLC
@@ -394,18 +393,13 @@ class HttpRuntimeProxy(instance.RuntimeProxy):
         if(sys.platform == "win32"):
           self._args = [arg.replace('$PORT', str(port)) for arg in self._args]
         
-        # CHANGES by NoCommandLine - Temporarily disabled
-        # Previously, shell had a constant value of True i.e. shell = True
-        # Changed it to - If this is windows, shell = False, else it will be True
-        # Reason: On Windows, shell = True should be used only when the command being executed is built into the shell
-        # https://docs.python.org/2.7/library/subprocess.html
         self._process = safe_subprocess.start_process(
             args=self._args,
             input_string=serialized_config,
             env=self._env,
             cwd=self._module_configuration.application_root,
             stderr=subprocess.PIPE,
-            shell= True) # Change by NoCommandLine (see above) False if(sys.platform == "win32") else True
+            shell= True) 
     elif self._start_process_flavor == START_PROCESS_REVERSE_NO_FILE:
       serialized_config = runtime_config.SerializeToString()
       with self._process_lock:
