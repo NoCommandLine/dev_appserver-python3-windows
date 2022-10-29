@@ -87,4 +87,4 @@ When done, run your app with the ```dev_appserver.py``` command as usual i.e.
 
 ## Tips/Support/Donation/Gift
 
-If you found this work useful, please support us with a tip/gift - [Give a tip](https://nocommandline.com/tip/)
+If you found this work useful, please support us with a tip/gift - [Give a tip](https://buy.stripe.com/4gw01bfLy3SFbVS4gg)
