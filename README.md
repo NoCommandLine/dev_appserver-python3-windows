@@ -12,17 +12,19 @@ According to [Google](https://cloud.google.com/appengine/docs/standard/testing-a
 ## How
 A high level summary of the changes/code in the patch
 
-1. ```dev_appserver.py``` runs your App with ```gunicorn``` since this is what Google uses in Production. Since ```gunicorn``` doesn't run on Windows, the Patch replaces it with ```waitress``` when it detects you're running Windows.
+1. If your App doesn't include an 'entrypoint', ```dev_appserver.py``` will add the default entrypoint, ```gunicorn -b :${PORT} main:app```. This means ```dev_appserver.py``` runs your App with ```gunicorn``` because this is what Google uses in Production.
 
-2. Windows uses the ```Script``` folder instead of ```bin``` folder for storing python executables. ```dev_appserver.py``` included ```bin``` folder in the paths to executable files. The Patch uses ```Script``` when it detects you're running Windows.
+    Since ```gunicorn``` doesn't run on Windows, the Patch replaces it with another WSGI server, ```waitress```, when it detects you're running Windows and uses the default entrypoint, ```waitress-serve --listen=*:$PORT main:app```. **Note** that when your App is deployed to production, it will still be run with ```gunicorn```.
 
-3. ```dev_appserver.py``` first creates a copy of your requirements file via the command ```tempfile.NamedTemporaryFile()```, adds ```gunicorn``` to the bottom of the copy and then sends this copy to a function which reads the file and installs the requirements. 
+2. Windows uses the ```Script``` folder instead of ```bin``` folder for storing python executables. ```dev_appserver.py``` included ```bin``` folder in the paths to executable files. The Patch uses ```Script``` folder when it detects you're running Windows.
+
+3. ```dev_appserver.py``` first creates a copy of your requirements file via the command ```tempfile.NamedTemporaryFile()```, adds ```gunicorn``` to the bottom of the copy and then sends this copy to a function which re-opens the file, reads its contents and installs the requirements. 
 
     However, Windows doesn't allow reopening of a temporary file via its filename while the file is still open ([reference](https://docs.python.org/2.7/library/tempfile.html#tempfile.NamedTemporaryFile)) 
 
-    The Patch doesn't create a copy of the requirements file. Instead it installs the contents of the original requirements file and then installs ```waitress```
+    The Patch doesn't create a copy of the requirements file. Instead it installs the contents of the original requirements file, after which it then installs ```waitress```
 
-4. Added the environment variable ```PIP_USER``` and set it to ```False``` because calling ```pip -m install <package_name>``` on Windows via ```subprocess.Popen()``` can sometimes lead to the error 
+4. The Patch added the environment variable ```PIP_USER``` and set it to ```False``` because calling ```pip -m install <package_name>``` on Windows via ```subprocess.Popen()``` can sometimes lead to the error 
 
     > '[WinError 5] Access is denied: Consider using the --user option or check the permissions'. 
 
@@ -67,3 +69,20 @@ When done, run your app with the ```dev_appserver.py``` command as usual i.e.
 
 
 ```dev_appserver.py --runtime_python_path=<PYTHON3_PATH> --application=<PROJECT_ID> app.yaml --port=<PORT_NO> ```
+
+
+
+## Roadmap
+
+1. **Flag to reuse existing virtual environment:**  
+
+    Each time you run ```dev_appserver.py```, it creates & activates a new virtual environment (in your temp folder) and installs your requirements.txt file. This can slow down your application startup (even if it's installing the libraries from cache). In addition, ```dev_appserver.py``` doesn't delete the previously created temp folders. This means that over time (especially when you're debugging which leads to multiple app restarts), your temp folder becomes littered with temp virtual environments
+
+    The plan is to create a flag to tell ```dev_appserver.py``` to use an existing virtual environment like the ```venv``` folder which you would typically create in your project root.
+    
+2. **Flag to delete the virtual environment created in temp when the application shuts down**
+
+
+## Tips/Support/Donation/Gift
+
+If you found this work useful, please support us with a tip/gift - [Give a tip](https://nocommandline.com/tip/)
