@@ -22,7 +22,7 @@ A high level summary of the changes/code in the patch
 
     However, Windows doesn't allow reopening of a temporary file via its filename while the file is still open ([reference](https://docs.python.org/2.7/library/tempfile.html#tempfile.NamedTemporaryFile)) 
 
-    The Patch doesn't create a copy of the requirements file. Instead it installs the contents of the original requirements file, after which it then installs ```waitress```
+    The Patch solves this problem by not creating a copy of the requirements file. Instead, it installs the contents of the original requirements file, after which it then installs ```waitress```.
 
 4. The Patch added the environment variable ```PIP_USER``` and set it to ```False``` because calling ```pip -m install <package_name>``` on Windows via ```subprocess.Popen()``` can sometimes lead to the error 
 
@@ -35,7 +35,7 @@ A high level summary of the changes/code in the patch
     > Can not perform a '--user' install. User site-packages are not visible in this virtualenv.
     
     
-    Setting ```PIP_USER = False``` solves all of the above error i.e. it allows you to run ```pip -m install <package_name>``` ([reference](https://github.com/gitpod-io/gitpod/issues/1997#issuecomment-708480259))
+    Setting ```PIP_USER = False``` solves all of the above error i.e. it allows you to run ```pip -m install <package_name>``` ([reference](https://github.com/gitpod-io/gitpod/issues/1997#issuecomment-708480259)).
 
 
 ## Changed Files
