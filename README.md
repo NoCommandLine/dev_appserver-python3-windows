@@ -3,6 +3,13 @@
 ## What
 This is a patch to allow you run Python 3 Apps on Windows using ```dev_appserver.py```.
 
+### **Tested on** 
+
+- Windows 10 Home Edition
+- Google Cloud SDK 391.0.0
+- app-engine-python 1.9.100
+- app-engine-python-extras 1.9.96
+
 ## Why
 According to [Google](https://cloud.google.com/appengine/docs/standard/testing-and-deploying-your-app?tab=python)
 
