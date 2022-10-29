@@ -1,7 +1,7 @@
 # dev_appserver-python3-windows
 
 ## What
-This is a patch to allow you run Python 3 Apps on Windows using ```dev_appserver.py```.
+This is a patch to allow you run Python 3 Apps on Windows using ```dev_appserver.py``` (ONLY for GAE Standard Environment).
 
 **Tested on:** Windows 10 Home Edition, Google Cloud SDK 391.0.0, app-engine-python 1.9.100, app-engine-python-extras 1.9.96
 
