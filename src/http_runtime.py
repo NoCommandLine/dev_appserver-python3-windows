@@ -391,7 +391,7 @@ class HttpRuntimeProxy(instance.RuntimeProxy):
         # Changes by NoCommandLine -
         # If entrypoint contains $PORT parameter, then substitute the derived port value
         if(sys.platform == "win32"):
-          self._args = [arg.replace('$PORT', str(port)) for arg in self._args]
+          self._args = [arg.replace('${PORT}', str(port)) for arg in self._args]
         
         self._process = safe_subprocess.start_process(
             args=self._args,
