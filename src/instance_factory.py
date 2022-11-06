@@ -64,7 +64,7 @@ mswindows = (sys.platform == "win32")
 # Also changed the default entrypoint to use waitress-serve
 if mswindows:
   executables_folder = 'Scripts'
-  _MODERN_DEFAULT_ENTRYPOINT = 'waitress-serve --listen=*:$PORT main:app'
+  _MODERN_DEFAULT_ENTRYPOINT = 'waitress-serve --listen=*:${PORT} main:app'
 else:
   executables_folder = 'bin'
 # End of Changes added by NoCommandLine
