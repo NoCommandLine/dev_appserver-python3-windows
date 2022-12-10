@@ -19,7 +19,7 @@ A high level summary of the changes/code in the patch
 
 1. If your App doesn't include an 'entrypoint', ```dev_appserver.py``` will add the default entrypoint, ```gunicorn -b :${PORT} main:app```. This means ```dev_appserver.py``` runs your App with ```gunicorn``` because this is what Google uses in Production.
 
-    Since ```gunicorn``` doesn't run on Windows, the Patch replaces it with another WSGI server, ```waitress```, when it detects you're running Windows and uses the default entrypoint, ```waitress-serve --listen=*:$PORT main:app```. **Note** that when your App is deployed to production, it will still be run with ```gunicorn```.
+    Since ```gunicorn``` doesn't run on Windows, the Patch replaces it with another WSGI server, ```waitress```, when it detects you're running Windows and uses the default entrypoint, ```waitress-serve --listen=*:${PORT} main:app```. **Note** that when your App is deployed to production, it will still be run with ```gunicorn```.
 
 2. Windows uses the ```Script``` folder instead of ```bin``` folder for storing python executables. ```dev_appserver.py``` included ```bin``` folder in the paths to executable files. The Patch uses ```Script``` folder when it detects you're running Windows.
 
