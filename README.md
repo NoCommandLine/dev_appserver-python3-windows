@@ -76,6 +76,7 @@ When done, run your app with the ```dev_appserver.py``` command as usual i.e.
 ```dev_appserver.py --runtime_python_path=<PYTHON3_PATH> --application=<PROJECT_ID> app.yaml --port=<PORT_NO> ```
 
 
+**Note: Don't include your Python2 Path in the values for the flag ```--runtime_python_path```**
 
 ## Roadmap
 
