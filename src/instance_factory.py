@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-# Includes modifications by NoCommandLine (info.nocommandline@gmail.com | https://nocommandline.com)
+# Includes modifications by NoCommandLine (info@nocommandline.com | https://nocommandline.com)
 # to allow support for Python 3 Apps on Windows 
 """Serves content for "script" handlers using the Python runtime."""
 
