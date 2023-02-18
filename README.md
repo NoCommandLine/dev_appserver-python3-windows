@@ -57,7 +57,9 @@ A high level summary of the changes/code in the patch
     
    <SDK_INSTALL_PATH>\Cloud SDK\google-cloud-sdk\platform\google_appengine\google\appengine\tools\devappserver2\
    
-Note: SDK_INSTALL_PATH = The path to Google Cloud SDK/CLI installation on your machine.
+Note: 
+1. SDK_INSTALL_PATH = The path to Google Cloud SDK/CLI installation on your machine
+2. If you don't see the path/directory ```google_appengine\google\appengine\tools\devappserver2\python\```, it probaly means you don't have ```app-engine-python-extras``` installed. Run the command ```gcloud components install app-engine-python-extras``` and it should create the missing path/directories
    
 ## Installation
 
