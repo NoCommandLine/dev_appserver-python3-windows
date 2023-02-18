@@ -1,4 +1,17 @@
-# dev_appserver-python3-windows
+# dev_appserver-python3-windows   <a href="https://twitter.com/intent/tweet?text=Run%20GAE%20Python%203%20Apps%20on%20Windows%20using%20this%20patch%20created%20by%20%40GUI_4_GAE"><img src="https://img.shields.io/twitter/url?label=Share on Twitter&style=social&url=https://github.com/NoCommandLine/dev_appserver-python3-windows"></a>
+
+<p></p>
+<p align="center">
+    Report Bug/Request Feature/Provide Feedback via 
+    <a href="https://github.com/NoCommandLine/dev_appserver-python3-windows/issues/new/choose">GitHub</a>
+    or
+    <a href="mailto:info.nocommandline+github@gmail.com">Email</a>
+</p>
+
+
+<p align="center">
+    Try our GUI for GAE - <a href="https://nocommandline.com/">NoCommandLine</a>
+</p>
 
 ## What
 This is a patch to allow you run Python 3 Apps on Windows using ```dev_appserver.py``` (ONLY for GAE Standard Environment).
