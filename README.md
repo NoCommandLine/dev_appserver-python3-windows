@@ -2,7 +2,7 @@
 
 <p></p>
 <p align="center">
-    Report Bug/Request Feature/Provide Feedback via 
+    Report Bugs/Request Features/Provide Feedback via 
     <a href="https://github.com/NoCommandLine/dev_appserver-python3-windows/issues/new/choose">GitHub</a>
     or
     <a href="mailto:info.nocommandline+github@gmail.com">Email</a>
