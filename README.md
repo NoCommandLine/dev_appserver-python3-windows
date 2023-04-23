@@ -96,10 +96,13 @@ When done, run your app with the ```dev_appserver.py``` command as usual i.e.
 ## Roadmap
 
 1. **Flag to reuse existing virtual environment:**  
+    
+    This is now officially supported in [gcloud CLI version 422.0.0](https://cloud.google.com/sdk/docs/release-notes#app_engine_5) via the ```--python_virtualenv_path``` flag
+    
+    
+    <s>Each time you run ```dev_appserver.py```, it creates & activates a new virtual environment (in your temp folder) and installs your requirements.txt file. This can slow down your application startup (even if it's installing the libraries from cache). In addition, ```dev_appserver.py``` doesn't delete the previously created temp folders. This means that over time (especially when you're debugging which leads to multiple app restarts), your temp folder becomes littered with temp virtual environments
 
-    Each time you run ```dev_appserver.py```, it creates & activates a new virtual environment (in your temp folder) and installs your requirements.txt file. This can slow down your application startup (even if it's installing the libraries from cache). In addition, ```dev_appserver.py``` doesn't delete the previously created temp folders. This means that over time (especially when you're debugging which leads to multiple app restarts), your temp folder becomes littered with temp virtual environments
-
-    The plan is to create a flag to tell ```dev_appserver.py``` to use an existing virtual environment like the ```venv``` folder which you would typically create in your project root.
+    The plan is to create a flag to tell ```dev_appserver.py``` to use an existing virtual environment like the ```venv``` folder which you would typically create in your project root.</s>
     
 2. **Flag to delete the virtual environment created in temp when the application shuts down**
 
