@@ -18,8 +18,10 @@ This is a patch to allow you run Python 3 Apps on Windows using ```dev_appserver
 
 **Tested on:** 
 
-- Windows 10 Home Edition, Google Cloud SDK 391.0.0, app-engine-python 1.9.100, app-engine-python-extras 1.9.96
+- Windows 10 Home Edition, Google Cloud SDK 429.0.0, app-engine-python 1.9.103, app-engine-python-extras 1.9.96
 - Windows 10 Home Edition, Google Cloud SDK 407.0.0, app-engine-python 1.9.101, app-engine-python-extras 1.9.96
+- Windows 10 Home Edition, Google Cloud SDK 391.0.0, app-engine-python 1.9.100, app-engine-python-extras 1.9.96
+
 
 ## Why
 According to [Google](https://cloud.google.com/appengine/docs/standard/testing-and-deploying-your-app?tab=python)
@@ -76,6 +78,12 @@ Note:
    
 ## Installation
 
+### Versions
+In the ```src``` folder, pick the folder which matches your Google Cloud SDK version
+- For Google Cloud SDK Version 427.0.0 and above, choose ```gcloud_sdk_427.0.0+``` (Google Cloud SDK Version 427.0.0 introduced a [breaking change](https://cloud.google.com/sdk/docs/release-notes#breaking_changes_3))
+- For Google Cloud SDK Version below 427.0.0, choose ```gcloud_sdk_426.0.0-```  
+
+<br>
 For each of the files listed under 'Changed Files', 
 
 1. Navigate to the location
