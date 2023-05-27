@@ -84,7 +84,7 @@ Note:
 
 ### Versions
 In the ```src``` folder, pick the folder which matches your Google Cloud SDK version
-- For Google Cloud SDK Version 427.0.0 and above, choose ```gcloud_sdk_427.0.0+``` (Google Cloud SDK Version 427.0.0 introduced a [breaking change](https://cloud.google.com/sdk/docs/release-notes#breaking_changes_3))
+- For Google Cloud SDK Version 427.0.0 and above, choose ```gcloud_sdk_427.0.0+``` (Google Cloud SDK Version 427.0.0 introduced a [breaking change](https://cloud.google.com/sdk/docs/release-notes#breaking_changes_5))
 - For Google Cloud SDK Version below 427.0.0, choose ```gcloud_sdk_426.0.0-```  
 
 <br>
