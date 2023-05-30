@@ -103,7 +103,9 @@ When done, run your app with the ```dev_appserver.py``` command as usual i.e.
 ```dev_appserver.py --runtime_python_path=<PYTHON3_PATH> --application=<PROJECT_ID> app.yaml --port=<PORT_NO> ```
 
 
-**Note: Don't include your Python2 Path in the values for the flag ```--runtime_python_path```**
+**Note:** 
+1. Don't include your Python2 Path in the values for the flag ```--runtime_python_path```
+2. For ```Cloud SDK 427.0.0 and above```, don't forget to set the environment variable ```CLOUDSDK_DEVAPPSERVER_PYTHON``` to the path of your Python 2 interpreter. If you don't, you'll get an error when trying to run your App with ```dev_appserver.py```. For more details, see [Google documentation](https://cloud.google.com/appengine/docs/standard/tools/local-devserver-command?tab=python)
 
 ## Roadmap
 
