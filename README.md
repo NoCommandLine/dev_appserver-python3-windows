@@ -16,11 +16,11 @@
 <p align="center">
     Try our Analytics App for GAE & Cloud Run Apps - <a href="https://github.com/NoCommandLine/NoCommandLine-Analytics/">NoCommandLine (Analytics)</a>
 </p>
-
+<!--
 <p align="center">
     Block Bots/Spam to your GAE App with our - <a href="https://firewall.nocommandline.com/">Automated Firewall Rule Command Generator</a>
 </p>
-
+-->
 
 ## What
 This is a patch to allow you run Python 3 Apps on Windows using ```dev_appserver.py``` (ONLY for GAE Standard Environment).
