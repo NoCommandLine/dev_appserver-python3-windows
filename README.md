@@ -27,6 +27,10 @@ This is a patch to allow you run Python 3 Apps on Windows using ```dev_appserver
 
 **Tested on:** 
 
+- Windows 10 Home Edition, Google Cloud SDK 470.0.0, app-engine-python 1.9.111 :new: 
+
+    **Note**: Google Cloud SDK 470.0.0 requires a minimum of Python 3.9
+  
 - Windows 10 Home Edition, Google Cloud SDK 429.0.0, app-engine-python 1.9.103, app-engine-python-extras 1.9.96
 - Windows 10 Home Edition, Google Cloud SDK 407.0.0, app-engine-python 1.9.101, app-engine-python-extras 1.9.96
 - Windows 10 Home Edition, Google Cloud SDK 391.0.0, app-engine-python 1.9.100, app-engine-python-extras 1.9.96
@@ -45,7 +49,7 @@ A high level summary of the changes/code in the patch
 
     Since ```gunicorn``` doesn't run on Windows, the Patch replaces it with another WSGI server, ```waitress```, when it detects you're running Windows and uses the default entrypoint, ```waitress-serve --listen=*:${PORT} main:app```. **Note** that when your App is deployed to production, it will still be run with ```gunicorn```.
 
-2. Windows uses the ```Script``` folder instead of ```bin``` folder for storing python executables. ```dev_appserver.py``` included ```bin``` folder in the paths to executable files. The Patch uses ```Script``` folder when it detects you're running Windows.
+2. <s>Windows uses the ```Script``` folder instead of ```bin``` folder for storing python executables. ```dev_appserver.py``` included ```bin``` folder in the paths to executable files. The Patch uses ```Script``` folder when it detects you're running Windows.</s> **This has been fixed by Google**
 
 3. ```dev_appserver.py``` first creates a copy of your requirements file via the command ```tempfile.NamedTemporaryFile()```, adds ```gunicorn``` to the bottom of the copy and then sends this copy to a function which re-opens the file, reads its contents and installs the requirements. 
 
@@ -89,6 +93,7 @@ Note:
 
 ### Versions
 In the ```src``` folder, pick the folder which matches your Google Cloud SDK version
+- For Google Cloud SDK Version 470.0.0 and above, choose ```gcloud_sdk_70.0.0+```
 - For Google Cloud SDK Version 427.0.0 and above, choose ```gcloud_sdk_427.0.0+``` (Google Cloud SDK Version 427.0.0 introduced a [breaking change](https://cloud.google.com/sdk/docs/release-notes#breaking_changes_9))
 - For Google Cloud SDK Version below 427.0.0, choose ```gcloud_sdk_426.0.0-```  
 
