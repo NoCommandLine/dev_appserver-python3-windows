@@ -362,22 +362,43 @@ class PythonRuntimeInstanceFactory(instance.InstanceFactory,
     """Create virtualenv for py3 instances and run pip install."""
     # Create a clean virtualenv
     # TODO: Return this to python3, maybe use a flag for python3
-    args = [self._GetPythonInterpreterPath(), '-m', 'venv', venv_dir]
-    call_res = subprocess.call(args)
-    if call_res:
-      # `python3 -m venv` Failed.
-      # Clean up venv_dir and try 'virtualenv' command instead.
-      self._CleanUpVenv(venv_dir)
-      fallback_args = ['virtualenv', venv_dir]
-      logging.warning(
-          'Failed creating virtualenv with "%s", \n'
-          'trying "%s"', ' '.join(args), ' '.join(fallback_args))
-      call_res = subprocess.call(fallback_args)
+    
+    # Changes by NoCommandLine
+    """
+    On Windows, an error is raised when you try to create a virtualenv in a folder
+    which already has a virtualenv. You get a 'Permission Denied to the <python file>'
+    in that virtualenv' error.
+
+    Workaround will be  if
+      a) this is windows 
+      b) and a venv exists
+      c) and python exists in it (this is our way of confirming it isn't an empty virtualenv)
+    then skip trying to recreate the virtualenv
+    """
+    if(
+        self._is_windows() and 
+        os.path.exists(venv_dir) and
+        os.path.exists(os.path.join(os.path.join(venv_dir, 'Scripts'), 'python.exe'))
+      ):
+        self._RunPipInstall(venv_dir, requirements_file_name)
+        
+    else: # end of changes by NoCommandLine
+      args = [self._GetPythonInterpreterPath(), '-m', 'venv', venv_dir]
+      call_res = subprocess.call(args)
       if call_res:
-        raise IOError('Cannot create virtualenv {}'.format(venv_dir))
-      logging.warning(
-          'Runtime python interpreter will be selected by virtualenv')
-    self._RunPipInstall(venv_dir, requirements_file_name)
+        # `python3 -m venv` Failed.
+        # Clean up venv_dir and try 'virtualenv' command instead.
+        self._CleanUpVenv(venv_dir)
+        fallback_args = ['virtualenv', venv_dir]
+        logging.warning(
+            'Failed creating virtualenv with "%s", \n'
+            'trying "%s"', ' '.join(args), ' '.join(fallback_args))
+        call_res = subprocess.call(fallback_args)
+        if call_res:
+          raise IOError('Cannot create virtualenv {}'.format(venv_dir))
+        logging.warning(
+            'Runtime python interpreter will be selected by virtualenv')
+      self._RunPipInstall(venv_dir, requirements_file_name)
 
     # These env vars are used in subprocess to have the same effect as running
     # `source ${venv_dir}/bin/activate`
